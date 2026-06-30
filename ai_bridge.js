@@ -113,5 +113,26 @@
         });
     };
 
+    // ── 唤醒 Render 后端（减少首次 AI 请求的冷启动延迟） ────────────────────
+    /**
+     * 向后端 /health 发送一次轻量 GET 请求，触发 Render 冷启动唤醒。
+     * 失败时静默处理，不影响正常流程。
+     */
+    window.wakeUpBackend = function () {
+        var base = (window.AI_PROXY_BASE_URL || "https://echo-yonder.onrender.com").replace(/\/$/, "");
+        var url = base + "/health";
+        debugLog("唤醒后端: " + url);
+        fetch(url, { method: "GET" })
+            .then(function (res) {
+                debugLog("后端唤醒成功，HTTP " + res.status);
+            })
+            .catch(function (err) {
+                debugLog("后端唤醒请求失败（可忽略）: " + err);
+            });
+    };
+
+    // 脚本加载后立即触发唤醒
+    window.wakeUpBackend();
+
     console.log("[ai_bridge] Echo Yonder AI Bridge loaded. Backend:", (window.AI_PROXY_BASE_URL || "https://echo-yonder.onrender.com"));
 })();
