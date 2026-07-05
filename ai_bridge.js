@@ -135,4 +135,30 @@
     window.wakeUpBackend();
 
     console.log("[ai_bridge] Echo Yonder AI Bridge loaded. Backend:", (window.AI_PROXY_BASE_URL || "https://echo-yonder.onrender.com"));
+
+    // ── 修复 Web 端 #inputDiv 位置偏移到顶部的问题 ───────────────────────────
+    //
+    // RenPy Web 版的输入框是固定在 index.html 里的 #inputDiv（含 #inputPrompt
+    // 和 #inputText），其默认 CSS 为 top:0，导致出现在画面顶部。
+    // 此处在页面就绪后直接覆盖其样式，将其移到游戏画面底部对话框区域。
+    (function fixRenpyInputDivPosition() {
+        function applyFix() {
+            var inputDiv = document.getElementById("inputDiv");
+            if (!inputDiv) { return; }
+
+            // 移除原来的 top:0，改为贴底部
+            inputDiv.style.top    = "auto";
+            inputDiv.style.bottom = "15%";
+            // 圆角改为上方
+            inputDiv.style.borderRadius = "5px 5px 0 0";
+
+            console.log("[ai_bridge] #inputDiv position fixed to bottom.");
+        }
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", applyFix);
+        } else {
+            applyFix();
+        }
+    })();
 })();
