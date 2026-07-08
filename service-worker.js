@@ -1,3 +1,24 @@
+/* echo-yonder-patch: service-worker network bypass */
+function echoYonderShouldBypassCache(request) {
+    if (!request || request.method !== "GET") {
+        return true;
+    }
+
+    try {
+        var url = new URL(request.url);
+        if (url.hostname === "echo-yonder.onrender.com") {
+            return true;
+        }
+        if (url.origin !== self.location.origin) {
+            return true;
+        }
+    } catch (error) {
+        return true;
+    }
+
+    return false;
+}
+
 var cacheName = 'echoyonder';
 
 /* Start the service worker and cache all of the app's content or use the existing one */

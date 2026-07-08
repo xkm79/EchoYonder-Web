@@ -57,6 +57,52 @@
         }
     }
 
+    function repairLegacyServiceWorker() {
+        if (!("serviceWorker" in navigator) || !navigator.serviceWorker.controller) {
+            return;
+        }
+
+        var reloadKey = "echoYonderServiceWorkerRepairReloaded";
+        fetch("service-worker.js", { cache: "no-store" })
+            .then(function (response) {
+                if (!response.ok) {
+                    return "";
+                }
+                return response.text();
+            })
+            .then(function (source) {
+                if (source.indexOf("echo-yonder-patch: service-worker network bypass") !== -1) {
+                    return;
+                }
+                if (window.sessionStorage && window.sessionStorage.getItem(reloadKey) === "1") {
+                    debugLog("检测到旧 Service Worker，但已刷新过一次，避免重复刷新。");
+                    return;
+                }
+
+                debugLog("检测到旧 Service Worker，自动注销并刷新页面。");
+                return navigator.serviceWorker.getRegistrations()
+                    .then(function (registrations) {
+                        return Promise.all(registrations.map(function (registration) {
+                            var worker = registration.active || registration.waiting || registration.installing;
+                            var scriptUrl = worker && worker.scriptURL ? worker.scriptURL : "";
+                            if (scriptUrl.indexOf("/service-worker.js") === -1) {
+                                return false;
+                            }
+                            return registration.unregister();
+                        }));
+                    })
+                    .then(function () {
+                        if (window.sessionStorage) {
+                            window.sessionStorage.setItem(reloadKey, "1");
+                        }
+                        window.location.reload();
+                    });
+            })
+            .catch(function (error) {
+                debugLog("Service Worker 自修复检查失败（可忽略）: " + error);
+            });
+    }
+
     /**
      * 发起 AI 对话请求。
      *
@@ -340,7 +386,8 @@
             });
     };
 
-    // 脚本加载后立即触发唤醒
+    // 脚本加载后先修复旧缓存层，再触发唤醒。
+    repairLegacyServiceWorker();
     window.wakeUpBackend();
 
     console.log("[ai_bridge] Echo Yonder AI Bridge loaded. Backend:", (window.AI_PROXY_BASE_URL || "https://echo-yonder.onrender.com"));
