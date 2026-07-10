@@ -57,6 +57,22 @@
         }
     }
 
+    function delay(milliseconds) {
+        return new Promise(function (resolve) {
+            window.setTimeout(resolve, milliseconds);
+        });
+    }
+
+    function shouldRetryTextRequest(error) {
+        var message = String(error || "");
+        return (
+            message.indexOf("Failed to fetch") !== -1
+            || message.indexOf("NetworkError") !== -1
+            || message.indexOf("Load failed") !== -1
+            || message.indexOf("AbortError") !== -1
+        );
+    }
+
     function repairLegacyServiceWorker() {
         if (!("serviceWorker" in navigator) || !navigator.serviceWorker.controller) {
             return;
@@ -71,7 +87,7 @@
                 return response.text();
             })
             .then(function (source) {
-                if (source.indexOf("echo-yonder-patch: service-worker network bypass") !== -1) {
+                if (source.indexOf("echo-yonder-patch: service-worker passthrough v2") !== -1) {
                     return;
                 }
                 if (window.sessionStorage && window.sessionStorage.getItem(reloadKey) === "1") {
@@ -124,11 +140,6 @@
         var timeoutMs = Math.max(1, Number(timeoutSeconds) || 40) * 1000;
         var controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
         var timeoutHandle = null;
-        if (controller) {
-            timeoutHandle = window.setTimeout(function () {
-                controller.abort();
-            }, timeoutMs);
-        }
 
         debugLog("发起请求 → " + url + "  角色=" + characterName + " isjson=" + isJson + " timeout=" + timeoutMs + "ms");
 
@@ -139,12 +150,45 @@
             isjson:         !!isJson
         };
 
-        fetch(url, {
-            method:  "POST",
-            headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify(payload),
-            signal:  controller ? controller.signal : undefined
-        })
+        function fetchOnce() {
+            controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+            if (controller) {
+                timeoutHandle = window.setTimeout(function () {
+                    controller.abort();
+                }, timeoutMs);
+            }
+
+            return fetch(url, {
+                method:  "POST",
+                headers: { "Content-Type": "application/json" },
+                body:    JSON.stringify(payload),
+                signal:  controller ? controller.signal : undefined
+            }).finally(function () {
+                if (timeoutHandle !== null) {
+                    window.clearTimeout(timeoutHandle);
+                    timeoutHandle = null;
+                }
+            });
+        }
+
+        function fetchWithRetry(attempt) {
+            debugLog("文本请求尝试 " + attempt + "/3");
+            return fetchOnce().catch(function (err) {
+                if (requestId !== window._ai_request_id) {
+                    throw err;
+                }
+                if (attempt >= 3 || !shouldRetryTextRequest(err)) {
+                    throw err;
+                }
+                var waitMs = 800 * attempt;
+                debugLog("文本请求网络失败，" + waitMs + "ms 后重试: " + err);
+                return delay(waitMs).then(function () {
+                    return fetchWithRetry(attempt + 1);
+                });
+            });
+        }
+
+        fetchWithRetry(1)
         .then(function (response) {
             if (requestId !== window._ai_request_id) {
                 return null;
@@ -161,9 +205,6 @@
             if (requestId !== window._ai_request_id || data === null) {
                 return;
             }
-            if (timeoutHandle !== null) {
-                window.clearTimeout(timeoutHandle);
-            }
             window.ai_result = data.content || "";
             window.ai_status = "done";
             debugLog("请求成功，结果长度=" + window.ai_result.length);
@@ -171,9 +212,6 @@
         .catch(function (err) {
             if (requestId !== window._ai_request_id) {
                 return;
-            }
-            if (timeoutHandle !== null) {
-                window.clearTimeout(timeoutHandle);
             }
             window.ai_error  = String(err);
             window.ai_status = "error";
@@ -226,12 +264,6 @@
                 throw new Error(payload.error || "图片代理返回失败");
             }
             return payload.data || {};
-        });
-    }
-
-    function delay(milliseconds) {
-        return new Promise(function (resolve) {
-            window.setTimeout(resolve, milliseconds);
         });
     }
 

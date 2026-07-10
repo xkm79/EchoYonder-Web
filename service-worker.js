@@ -1,4 +1,5 @@
 /* echo-yonder-patch: service-worker network bypass */
+/* echo-yonder-patch: service-worker passthrough v2 */
 function echoYonderShouldBypassCache(request) {
     if (!request || request.method !== "GET") {
         return true;
@@ -98,6 +99,9 @@ async function fetchAndCache(request) {
 
 /* Serve cached content when offline */
 self.addEventListener('fetch', function (e) {
+    if (echoYonderShouldBypassCache(e.request)) {
+        return;
+    }
     e.respondWith(fetchAndCache(e.request));
 });
 
