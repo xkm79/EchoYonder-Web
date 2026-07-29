@@ -981,3 +981,67 @@ Module.preRun = Module.preRun || [ ];
 
 
 })();
+/* echo-yonder-patch: serialized IDBFS sync */
+Module.preRun.push(function echoYonderInstallIdbfsSyncGuard() {
+    var originalSyncfs = FS.syncfs.bind(FS);
+    var syncQueue = [];
+    var syncRunning = false;
+
+    function connectionIsClosing(error) {
+        return error && /database connection is closing/i.test(
+            error.message || String(error)
+        );
+    }
+
+    function forgetClosingConnections() {
+        if (typeof IDBFS === "undefined" || !IDBFS.dbs) {
+            return;
+        }
+
+        Object.keys(IDBFS.dbs).forEach(function (name) {
+            delete IDBFS.dbs[name];
+        });
+    }
+
+    function runNextSync() {
+        if (syncRunning || !syncQueue.length) {
+            return;
+        }
+
+        syncRunning = true;
+        var request = syncQueue.shift();
+
+        originalSyncfs(request.populate, function (error) {
+            if (connectionIsClosing(error) && !request.retried) {
+                request.retried = true;
+                forgetClosingConnections();
+                syncRunning = false;
+                syncQueue.unshift(request);
+                window.setTimeout(runNextSync, 50);
+                return;
+            }
+
+            syncRunning = false;
+            try {
+                request.callback(error);
+            } finally {
+                runNextSync();
+            }
+        });
+    }
+
+    FS.syncfs = function (populate, callback) {
+        if (typeof populate === "function") {
+            callback = populate;
+            populate = false;
+        }
+
+        syncQueue.push({
+            populate: Boolean(populate),
+            callback: callback || function () {},
+            retried: false
+        });
+        runNextSync();
+    };
+});
+
